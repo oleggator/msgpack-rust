@@ -20,7 +20,7 @@ use rmp;
 use rmp::decode::{self, DecodeStringError, MarkerReadError, NumValueReadError, RmpRead, ValueReadError};
 use rmp::Marker;
 
-use crate::config::{BinaryConfig, DefaultConfig, HumanReadableConfig, SerializerConfig};
+use crate::config::{BinaryConfig, DefaultConfig, HumanReadableConfig, SerializerConfig, WithoutLengthCheckConfig};
 use crate::MSGPACK_EXT_STRUCT_NAME;
 
 /// Enum representing errors that can occur while decoding MessagePack data.
@@ -180,6 +180,7 @@ pub struct Deserializer<R, C = DefaultConfig> {
     rd: R,
     _config: PhantomData<C>,
     is_human_readable: bool,
+    check_length: bool,
     marker: Option<Marker>,
     depth: u16,
 }
@@ -211,6 +212,7 @@ impl<R: Read> Deserializer<ReadReader<R>, DefaultConfig> {
             rd: ReadReader::new(rd),
             _config: PhantomData,
             is_human_readable: DefaultConfig.is_human_readable(),
+            check_length: DefaultConfig.check_length(),
             // Cached marker in case of deserializing optional values.
             marker: None,
             depth: 1024,
@@ -246,10 +248,11 @@ impl<R: Read, C: SerializerConfig> Deserializer<R, C> {
     /// versions of `rmp-serde`.
     #[inline]
     pub fn with_human_readable(self) -> Deserializer<R, HumanReadableConfig<C>> {
-        let Deserializer { rd, _config: _, is_human_readable: _, marker, depth } = self;
+        let Deserializer { rd, _config: _, is_human_readable: _, check_length: _, marker, depth } = self;
         Deserializer {
             rd,
             is_human_readable: true,
+            check_length: true,
             _config: PhantomData,
             marker,
             depth,
@@ -263,10 +266,26 @@ impl<R: Read, C: SerializerConfig> Deserializer<R, C> {
     /// representation.
     #[inline]
     pub fn with_binary(self) -> Deserializer<R, BinaryConfig<C>> {
-        let Deserializer { rd, _config: _, is_human_readable: _, marker, depth } = self;
+        let Deserializer { rd, _config: _, is_human_readable: _, check_length: _, marker, depth } = self;
         Deserializer {
             rd,
             is_human_readable: false,
+            check_length: true,
+            _config: PhantomData,
+            marker,
+            depth,
+        }
+    }
+
+    /// Consumes this deserializer and returns a new one, which will deserialize types without
+    /// checking the length of the input arrays and maps.
+    #[inline]
+    pub fn without_length_check(self) -> Deserializer<R, WithoutLengthCheckConfig<C>> {
+        let Deserializer { rd, _config: _, is_human_readable: _, check_length: _, marker, depth } = self;
+        Deserializer {
+            rd,
+            is_human_readable: false,
+            check_length: false,
             _config: PhantomData,
             marker,
             depth,
@@ -292,6 +311,7 @@ where
         Deserializer {
             rd: ReadRefReader::new(rd),
             is_human_readable: DefaultConfig.is_human_readable(),
+            check_length: DefaultConfig.check_length(),
             _config: PhantomData,
             marker: None,
             depth: 1024,
@@ -567,8 +587,14 @@ impl<'de, R: ReadSlice<'de>, C: SerializerConfig> Deserializer<R, C> {
                 };
 
                 depth_count!(self.depth, {
+                    let check_length = self.check_length;
                     let mut seq = SeqAccess::new(self, len);
                     let res = visitor.visit_seq(&mut seq)?;
+
+                    if !check_length {
+                        return Ok(res);
+                    }
+
                     match seq.left {
                         0 => Ok(res),
                         excess => Err(Error::LengthMismatch(len - excess)),
@@ -586,8 +612,14 @@ impl<'de, R: ReadSlice<'de>, C: SerializerConfig> Deserializer<R, C> {
                 };
 
                 depth_count!(self.depth, {
+                    let check_length = self.check_length;
                     let mut seq = MapAccess::new(self, len);
                     let res = visitor.visit_map(&mut seq)?;
+
+                    if !check_length {
+                        return Ok(res);
+                    }
+
                     match seq.left {
                         0 => Ok(res),
                         excess => Err(Error::LengthMismatch(len - excess)),

@@ -23,6 +23,7 @@ pub(crate) mod sealed {
         /// String struct fields
         fn is_named(&self) -> bool;
         fn bytes(&self) -> BytesMode;
+        fn check_length(&self) -> bool;
     }
 }
 
@@ -81,6 +82,11 @@ impl sealed::SerializerConfig for RuntimeConfig {
     fn bytes(&self) -> BytesMode {
         self.bytes
     }
+
+    #[inline]
+    fn check_length(&self) -> bool {
+        true
+    }
 }
 
 /// The default serializer/deserializer configuration.
@@ -108,6 +114,11 @@ impl sealed::SerializerConfig for DefaultConfig {
     #[inline(always)]
     fn bytes(&self) -> BytesMode {
         BytesMode::default()
+    }
+
+    #[inline]
+    fn check_length(&self) -> bool {
+        true
     }
 }
 
@@ -146,6 +157,10 @@ where
     fn bytes(&self) -> BytesMode {
         self.0.bytes()
     }
+
+    fn check_length(&self) -> bool {
+        self.0.check_length()
+    }
 }
 
 /// Config wrapper that overrides struct serlization by packing as a tuple without field
@@ -177,6 +192,10 @@ where
 
     fn bytes(&self) -> BytesMode {
         self.0.bytes()
+    }
+
+    fn check_length(&self) -> bool {
+        self.0.check_length()
     }
 }
 
@@ -210,6 +229,10 @@ where
     fn bytes(&self) -> BytesMode {
         self.0.bytes()
     }
+
+    fn check_length(&self) -> bool {
+        self.0.check_length()
+    }
 }
 
 /// Config wrapper that overrides `Serializer::is_human_readable` and
@@ -241,5 +264,45 @@ where
 
     fn bytes(&self) -> BytesMode {
         self.0.bytes()
+    }
+
+    fn check_length(&self) -> bool {
+        self.0.check_length()
+    }
+}
+
+/// Config wrapper that overrides `Serializer::check_length` and
+/// `Deserializer::check_length` to return `false`.
+#[derive(Copy, Clone, Debug)]
+pub struct WithoutLengthCheckConfig<C>(C);
+
+impl<C> WithoutLengthCheckConfig<C> {
+    /// Creates a `WithoutLengthCheckConfig` inheriting unchanged configuration options from the given configuration.
+    #[inline(always)]
+    pub fn new(inner: C) -> Self {
+        Self(inner)
+    }
+}
+
+impl<C> sealed::SerializerConfig for WithoutLengthCheckConfig<C>
+where
+    C: sealed::SerializerConfig,
+{
+    #[inline(always)]
+    fn is_named(&self) -> bool {
+        self.0.is_named()
+    }
+
+    #[inline(always)]
+    fn is_human_readable(&self) -> bool {
+        self.0.is_human_readable()
+    }
+
+    fn bytes(&self) -> BytesMode {
+        self.0.bytes()
+    }
+
+    fn check_length(&self) -> bool {
+        false
     }
 }
